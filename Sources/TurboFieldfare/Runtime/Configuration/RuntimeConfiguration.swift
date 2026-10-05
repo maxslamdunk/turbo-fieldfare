@@ -20,10 +20,13 @@ public enum RuntimeExpertCachePolicy: String, Codable, Sendable {
 }
 
 /// What scores the next layer's experts for the decode early read, or `off`.
-/// `router` uses the next layer's own router. See `NextLayerExpertPrefetcher`.
+/// `router` uses the next layer's own router; `fitted` uses the fitted guess
+/// the runtime ships for this model, or the router for a model it ships none
+/// for. See `NextLayerExpertPrefetcher`.
 public enum RuntimeEarlyExpertRead: String, Codable, Sendable, CaseIterable {
     case off
     case router
+    case fitted
 }
 
 public struct RuntimeConfiguration: Sendable, Equatable {
@@ -70,7 +73,7 @@ public struct RuntimeConfiguration: Sendable, Equatable {
                 prefillChunkTokens: Int = 128,
                 prefillAttentionPath: RuntimePrefillAttentionPath = .fullTensorOps2DPreferred,
                 forceLogitsHead: Bool = false,
-                earlyExpertRead: RuntimeEarlyExpertRead = .router) {
+                earlyExpertRead: RuntimeEarlyExpertRead = .fitted) {
         precondition(Self.allowedExpertCacheSlots.contains(expertCacheSlots),
                      "unsupported expert-cache slot count")
         precondition(Self.allowedPrefillChunkTokens.contains(prefillChunkTokens),

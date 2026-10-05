@@ -388,10 +388,10 @@ import TurboFieldfare
         stats.misses = 300
         stats.reads = 116
         stats.used = 80
-        #expect(earlyExpertReadFooter(stats)
-                == "[early-read needed/tok=75.00 loaded-early/tok=20.00 reads/tok=29.00 precision=0.690]\n")
-        #expect(earlyExpertReadFooter(EarlyExpertReadStats())
-                == "[early-read needed/tok=n/a loaded-early/tok=n/a reads/tok=n/a precision=n/a]\n")
+        #expect(earlyExpertReadFooter(stats, guess: .fitted)
+                == "[early-read guess=fitted needed/tok=75.00 loaded-early/tok=20.00 reads/tok=29.00 precision=0.690]\n")
+        #expect(earlyExpertReadFooter(EarlyExpertReadStats(), guess: .router)
+                == "[early-read guess=router needed/tok=n/a loaded-early/tok=n/a reads/tok=n/a precision=n/a]\n")
     }
 
 }

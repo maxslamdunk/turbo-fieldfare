@@ -217,6 +217,9 @@ public final class RealForwardRunner: ChunkedPrefillRunner, MultimodalPrefillRun
     private let earlyExpertReads: NextLayerExpertPrefetcher?
     /// Early-read counts since this runner was created; nil when it is off.
     public var earlyExpertReadStats: EarlyExpertReadStats? { earlyExpertReads?.stats }
+    /// The guess the early read scores with, `fitted` or `router`; `off` when
+    /// it is off.
+    public var earlyExpertReadGuess: RuntimeEarlyExpertRead { earlyExpertReads?.guess ?? .off }
 
     public let maxContext: Int
 
@@ -385,7 +388,9 @@ public final class RealForwardRunner: ChunkedPrefillRunner, MultimodalPrefillRun
         self.effectiveScaleBuffers = perLayer
         self.earlyExpertReads = runtimeConfiguration.earlyExpertRead == .off
             ? nil
-            : try NextLayerExpertPrefetcher(model: model)
+            : try NextLayerExpertPrefetcher(model: model,
+                                            guess: runtimeConfiguration.earlyExpertRead,
+                                            device: context.device)
     }
 
     public func reset() {
@@ -1617,8 +1622,8 @@ public final class RealForwardRunner: ChunkedPrefillRunner, MultimodalPrefillRun
                     numExperts: UInt32(cfg.numExperts), d: D, topK: UInt32(cfg.topKExperts))
             }
 
-            // Early read: score layer L+1's experts with its own router over
-            // this layer's router input, in the same command buffer.
+            // Early read: score layer L+1's experts over this layer's router
+            // input, in the same command buffer.
             let earlyLayer = earlyExpertReads != nil && L + 1 < cfg.numLayers ? L + 1 : nil
             let earlyRouterW = try earlyLayer.map { try model.router(layer: $0) }
 
@@ -1630,7 +1635,17 @@ public final class RealForwardRunner: ChunkedPrefillRunner, MultimodalPrefillRun
             gOProj(cb)
             gPostAttnSetup(cb)
             gRouter(cb)
-            if let earlyLayer, let earlyRouterW {
+            if let earlyLayer, let guess = earlyExpertReads?.guessWeights {
+                let m = guess.matrix(targetLayer: earlyLayer)
+                moe.encodeRouterLogitsGemma4(commandBuffer: cb,
+                    weights: guess.buffer, weightsOffset: m.weightsOffset,
+                    scales:  guess.buffer, scalesOffset:  m.scalesOffset,
+                    biases:  guess.buffer, biasesOffset:  m.biasesOffset,
+                    hidden: routerInput,
+                    effectiveScale: guess.unitScale,
+                    outLogits: nextLayerScores,
+                    numExperts: UInt32(cfg.numExperts), d: D)
+            } else if let earlyLayer, let earlyRouterW {
                 moe.encodeRouterLogitsGemma4(commandBuffer: cb,
                     weights: earlyRouterW.buffer, weightsOffset: Int(earlyRouterW.offset),
                     scales:  earlyRouterW.buffer, scalesOffset:  Int(earlyRouterW.scaleOffset),

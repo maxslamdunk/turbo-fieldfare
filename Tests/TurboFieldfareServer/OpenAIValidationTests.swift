@@ -938,7 +938,7 @@ struct ServerArgumentTests {
         #expect(arguments.prefillPolicy == .chunked)
         #expect(arguments.prefillChunkTokens == 128)
         #expect(arguments.rdadvisePolicy == .off)
-        #expect(arguments.earlyExpertRead == .router)
+        #expect(arguments.earlyExpertRead == .fitted)
     }
 
     /// The server rejected `--prefill-chunk-tokens auto` while the CLI accepted

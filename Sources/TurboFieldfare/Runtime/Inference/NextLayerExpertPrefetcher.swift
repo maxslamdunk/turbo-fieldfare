@@ -1,4 +1,5 @@
 import Foundation
+import Metal
 
 /// Counts for the next-layer early read, summed over decode forwards.
 public struct EarlyExpertReadStats: Sendable, Equatable {
@@ -25,8 +26,9 @@ public struct EarlyExpertReadStats: Sendable, Equatable {
 /// storage would otherwise sit idle. On by default;
 /// `RuntimeConfiguration.earlyExpertRead` turns it off.
 ///
-/// Per layer L < last: cb1(L) also scores layer L+1's experts with L+1's router
-/// over L's router input. After L's own reads finish, the best-scoring experts
+/// Per layer L < last: cb1(L) also scores layer L+1's experts over L's router
+/// input, with the fitted guess the runtime ships for this model
+/// (`NextLayerGuessWeights`) or else with L+1's own router. After L's own reads finish, the best-scoring experts
 /// that L+1's cache does not hold are read, best first, into staging buffers
 /// outside every slot. Each one L+1's plan then misses has its staging buffer
 /// swapped into the slot the plan assigned to it and its read skipped; the rest
@@ -60,16 +62,27 @@ final class NextLayerExpertPrefetcher: @unchecked Sendable {
     private var pendingLayer: Int?
     private var pending: [Pending] = []
     private(set) var stats = EarlyExpertReadStats()
+    /// The fitted guess, or nil to score with the next layer's own router.
+    let guessWeights: NextLayerGuessWeights?
 
     /// Early reads per layer.
     var readsPerLayer: Int { staging.count }
 
-    init(model: Model,
+    init(model: Model, guess: RuntimeEarlyExpertRead, device: MTLDevice,
          environment: [String: String] = ProcessInfo.processInfo.environment) throws {
         let count = Self.readsPerLayer(environment: environment)
         let streamer = try model.routedExpertStreamer(layer: 0)
         staging = try (0..<count).map { _ in try streamer.makeStagingBuffer() }
+        let config = model.config
+        guessWeights = guess == .fitted
+            ? try NextLayerGuessWeights.bundled(
+                sourceSnapshotHash: model.sourceSnapshotHash, numLayers: config.numLayers,
+                numExperts: config.numExperts, hiddenSize: config.hiddenSize, device: device)
+            : nil
     }
+
+    /// Which guess scores the next layer, `fitted` or `router`.
+    var guess: RuntimeEarlyExpertRead { guessWeights == nil ? .router : .fitted }
 
     deinit {
         // A read may still be filling a staging buffer, which is freed with

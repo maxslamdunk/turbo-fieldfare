@@ -281,7 +281,8 @@ public func run(args: Args,
             let footer = "\n[stop=\(String(describing: stats.reason)) prefill=\(stats.prefillTokens)tok new=\(stats.newTokens)tok decode=\(String(format: "%.2f", stats.decodeSeconds))s tok/s=\(String(format: "%.3f", tokensPerSecond))]\n"
             stderr.write(Data(footer.utf8))
             if let early = runner.earlyExpertReadStats {
-                stderr.write(Data(earlyExpertReadFooter(early).utf8))
+                stderr.write(Data(earlyExpertReadFooter(
+                    early, guess: runner.earlyExpertReadGuess).utf8))
             }
         }
         return RunResult(exitCode: 0)
@@ -477,13 +478,15 @@ private func errored(_ stderr: FileHandle, _ message: String, _ code: Int32) -> 
 /// what `docs/COMMUNITY_BENCHMARKS.md` tells reporters to quote. Per decode
 /// forward: routed experts that had to come from storage, how many of those an
 /// early read had already loaded, and the share of early reads that were used.
-func earlyExpertReadFooter(_ stats: EarlyExpertReadStats) -> String {
+func earlyExpertReadFooter(_ stats: EarlyExpertReadStats,
+                           guess: RuntimeEarlyExpertRead) -> String {
     func perForward(_ total: UInt64) -> String {
         guard stats.forwards > 0 else { return "n/a" }
         return String(format: "%.2f", Double(total) / Double(stats.forwards))
     }
     let precision = stats.precision.map { String(format: "%.3f", $0) } ?? "n/a"
-    return "[early-read needed/tok=\(perForward(stats.misses))"
+    return "[early-read guess=\(guess.rawValue)"
+        + " needed/tok=\(perForward(stats.misses))"
         + " loaded-early/tok=\(perForward(stats.used))"
         + " reads/tok=\(perForward(stats.reads))"
         + " precision=\(precision)]\n"

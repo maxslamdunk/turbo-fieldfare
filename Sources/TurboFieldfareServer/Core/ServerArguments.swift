@@ -54,7 +54,8 @@ public struct ServerArguments: Equatable, Sendable {
       --rdadvise <s>             Read-advice policy: off, default, bounded, or adaptive
                                  (default off).
       --early-expert-read <s>    Read one guessed expert of the next layer while
-                                 storage is idle: off or router (default router).
+                                 storage is idle: off, router, or fitted (default
+                                 fitted; router for a model with no fitted guess).
       --help                     Show this help.
     """
 
@@ -208,7 +209,7 @@ public struct ServerArguments: Equatable, Sendable {
             case "--early-expert-read":
                 guard let parsed = RuntimeEarlyExpertRead(rawValue: value) else {
                     throw ServerArgumentError.invalid(
-                        "--early-expert-read must be off or router")
+                        "--early-expert-read must be off, router, or fitted")
                 }
                 earlyExpertRead = parsed
             default:
