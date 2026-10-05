@@ -122,8 +122,10 @@ parity = "\n".join(
     f"{runs_per_case[c]} runs"
     + (f" (SHA-256 {next(iter(texts[c]))[:16]}…)" if len(texts.get(c, ())) == 1 else "")
     for c in CASES)
+reads = sorted({int(s[len("fitted"):] or 1) for s in order if s.startswith("fitted")})
+reads_text = " and ".join(map(str, reads))
 settings = ("each case run with --early-expert-read fitted and "
-            "TURBO_FIELDFARE_EARLY_EXPERT_READS=1 to 4 (\"fitted ×N\")" if counts else
+            f"TURBO_FIELDFARE_EARLY_EXPERT_READS={reads_text} (\"fitted ×N\")" if counts else
             "each case run with --early-expert-read off | router | fitted, and fitted "
             "with TURBO_FIELDFARE_EARLY_EXPERT_READS=2 (\"fitted ×2\")")
 command = (f"Scripts/benchmark-early-read{'-counts' if counts else ''}.sh "
@@ -131,7 +133,7 @@ command = (f"Scripts/benchmark-early-read{'-counts' if counts else ''}.sh "
            f"--temperature 0.2 --top-k 64 --top-p 0.95, defaults otherwise), {settings}.")
 fields = {
     "title": f"[Benchmark]: {chip}, {memory}, macOS {macos} — early expert "
-             + ("reads per layer, 1–4" if counts else "read"),
+             + (f"reads per layer, {reads_text}" if counts else "read"),
     "commit": commit,
     "hardware": f"{model}, {chip}, {memory}",
     "environment": f"macOS {macos} ({build}), Swift {swift}",
