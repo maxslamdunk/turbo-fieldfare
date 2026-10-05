@@ -52,3 +52,19 @@ running each case eight times across the setting.
 early read on, how many of each token's expert reads were already loaded and
 how often the guess was right. Its last lines check that every run of a case
 produced identical text.
+
+## Optional: how many experts to read early
+
+The benchmark above reads one or two experts per layer early. A faster Mac
+may gain from more. To measure 1, 2, 3 and 4 per layer, run this after the
+benchmark above, with the same build and model:
+
+```bash
+Scripts/benchmark-early-read-counts.sh
+```
+
+It takes about as long as the first one. It prints its own issue link the
+same way, and writes `benchmark-results-counts/` and
+`benchmark-results-counts.zip`. If the link does not work,
+`python3 Scripts/early-read-report.py benchmark-results-counts` prints it
+again.

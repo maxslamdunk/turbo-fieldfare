@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Turn benchmark-results/ from Scripts/benchmark-early-read.sh into a
+"""Turn benchmark-results/ from Scripts/benchmark-early-read.sh (or
+benchmark-results-counts/ from Scripts/benchmark-early-read-counts.sh) into a
 benchmark report in the repository's [Benchmark] issue format.
 
 Writes benchmark-results/issue.md and prints a link that opens the
@@ -18,7 +19,10 @@ OUT = sys.argv[1] if len(sys.argv) > 1 else "benchmark-results"
 REPO = sys.argv[2] if len(sys.argv) > 2 else "maxslamdunk/turbo-fieldfare"
 CASES = ["short-explanation", "medium-review", "long-synthesis"]
 SETTINGS = [("off", "off"), ("router", "router"), ("fitted", "fitted"),
-            ("fitted2", "fitted ×2")]
+            ("fitted2", "fitted ×2"), ("fitted3", "fitted ×3"),
+            ("fitted4", "fitted ×4")]
+LABELS = dict(SETTINGS)
+DEFAULT_ORDER = "off router fitted fitted2 fitted2 fitted router off"
 URL_LIMIT = 7000
 
 FOOTER = re.compile(r"\[stop=(\S+) prefill=(\d+)tok new=(\d+)tok "
@@ -48,6 +52,9 @@ build = system_field(system, "BuildVersion")
 swift = re.search(r"Apple Swift version (\S+)", system)
 swift = swift.group(1) if swift else "?"
 power = "on power" if "AC Power" in system else "on battery"
+order = system_field(system, "Settings")
+order = (DEFAULT_ORDER if order == "?" else order).split()
+counts = order != DEFAULT_ORDER.split()
 
 runs = {}   # (case, setting) -> list of dicts
 texts = {}  # case -> set of output hashes
@@ -101,8 +108,8 @@ results = ("Decode tok/s, mean of the runs per setting "
            + "\n".join(speed)
            + "\n\nExpert reads per token with the early read on:\n\n"
            + "\n".join(guess)
-           + f"\n\nOrder per case: off, router, fitted, fitted ×2, fitted ×2, fitted, "
-           f"router, off; 2-minute pause before each run; one discarded warmup per case. "
+           + f"\n\nOrder per case: {', '.join(LABELS.get(s, s) for s in order)}; "
+           f"2-minute pause before each run; one discarded warmup per case. "
            f"{model}, {power}.")
 workload = "\n".join(
     "{}: prompt {} tok, generated {} tok, stop={}".format(
@@ -115,12 +122,16 @@ parity = "\n".join(
     f"{runs_per_case[c]} runs"
     + (f" (SHA-256 {next(iter(texts[c]))[:16]}…)" if len(texts.get(c, ())) == 1 else "")
     for c in CASES)
-command = ("Scripts/benchmark-early-read.sh (docs/COMMUNITY_BENCHMARKS.md settings: "
-           "--max-new 1024 --max-context 4096 --temperature 0.2 --top-k 64 --top-p 0.95, "
-           "defaults otherwise), each case run with --early-expert-read off | router | "
-           "fitted, and fitted with TURBO_FIELDFARE_EARLY_EXPERT_READS=2 (\"fitted ×2\").")
+settings = ("each case run with --early-expert-read fitted and "
+            "TURBO_FIELDFARE_EARLY_EXPERT_READS=1 to 4 (\"fitted ×N\")" if counts else
+            "each case run with --early-expert-read off | router | fitted, and fitted "
+            "with TURBO_FIELDFARE_EARLY_EXPERT_READS=2 (\"fitted ×2\")")
+command = (f"Scripts/benchmark-early-read{'-counts' if counts else ''}.sh "
+           "(docs/COMMUNITY_BENCHMARKS.md settings: --max-new 1024 --max-context 4096 "
+           f"--temperature 0.2 --top-k 64 --top-p 0.95, defaults otherwise), {settings}.")
 fields = {
-    "title": f"[Benchmark]: {chip}, {memory}, macOS {macos} — early expert read",
+    "title": f"[Benchmark]: {chip}, {memory}, macOS {macos} — early expert "
+             + ("reads per layer, 1–4" if counts else "read"),
     "commit": commit,
     "hardware": f"{model}, {chip}, {memory}",
     "environment": f"macOS {macos} ({build}), Swift {swift}",

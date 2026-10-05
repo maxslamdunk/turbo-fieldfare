@@ -1,19 +1,22 @@
 #!/bin/bash
 # The community benchmark (docs/COMMUNITY_BENCHMARKS.md), with each case
-# measured eight times across the early-read setting, in the order
+# measured several times across the early-read setting, by default in the order
 #   off, router, fitted, fitted x2, fitted x2, fitted, router, off
-# where "fitted x2" reads two experts per layer early
-# (TURBO_FIELDFARE_EARLY_EXPERT_READS=2). See EARLY_READ_BENCHMARK.md.
+# where "fitted xN" reads N experts per layer early
+# (TURBO_FIELDFARE_EARLY_EXPERT_READS=N). See EARLY_READ_BENCHMARK.md.
 #
 # Run from the repository root after
 #   swift build -c release --product TurboFieldfareCLI
 # with the model at scratch/gemma4.gturbo (or MODEL=<path>).
 # Results go to benchmark-results/. About 2-3 hours on an M1; a 2-minute
 # pause precedes each measured run (PAUSE=<seconds> to change it).
+# SETTINGS=<order> and OUT=<dir> change the settings run and the results
+# folder; Scripts/benchmark-early-read-counts.sh uses them.
 set -u
 MODEL=${MODEL:-scratch/gemma4.gturbo}
 PAUSE=${PAUSE:-120}
-OUT=benchmark-results
+OUT=${OUT:-benchmark-results}
+SETTINGS=${SETTINGS:-off router fitted fitted2 fitted2 fitted router off}
 CLI=.build/release/TurboFieldfareCLI
 PROMPTS=docs/benchmark-prompts/real-generation-v1
 
@@ -24,9 +27,9 @@ preflight() {
   fi
 }
 
-run_case() {  # <dir> <case> <seed> <label> <setting: off|router|fitted|fitted2>
+run_case() {  # <dir> <case> <seed> <label> <setting: off|router|fitted|fittedN>
   local setting=$5 reads=1
-  if [ "$setting" = fitted2 ]; then setting=fitted; reads=2; fi
+  case $setting in fitted[0-9]) reads=${setting#fitted}; setting=fitted ;; esac
   preflight
   echo "$(date '+%H:%M:%S') $2 $4" | tee -a "$OUT/progress.txt"
   { date; pmset -g therm; memory_pressure -Q; } > "$OUT/$1/$2-$4.conditions" 2>&1
@@ -53,6 +56,7 @@ preflight
 {
   git status --short
   git rev-parse HEAD
+  echo "Settings: $SETTINGS"
   sw_vers
   swift --version
   system_profiler SPHardwareDataType |
@@ -71,7 +75,7 @@ done
 
 for case_seed in $CASES; do
   n=0
-  for setting in off router fitted fitted2 fitted2 fitted router off; do
+  for setting in $SETTINGS; do
     n=$((n + 1))
     sleep "$PAUSE"
     run_case measured "${case_seed%%:*}" "${case_seed##*:}" "$n-$setting" "$setting"
@@ -84,12 +88,12 @@ for f in "$OUT"/measured/*.stderr; do
     "$(grep -h '^\[stop=' "$f")" "$(grep -h '^\[early-read' "$f")"
 done | tee "$OUT/summary.txt"
 
-# Generated text must be identical across the eight runs of each case.
+# Generated text must be identical across the runs of each case.
 for case_seed in $CASES; do
   echo "${case_seed%%:*}: $(shasum -a 256 "$OUT"/measured/"${case_seed%%:*}"-*.stdout |
-    awk '{print $1}' | sort -u | wc -l | tr -d ' ') distinct output(s) of 8"
+    awk '{print $1}' | sort -u | wc -l | tr -d ' ') distinct output(s) of $n"
 done | tee -a "$OUT/summary.txt"
 
 # A zip of everything, and the pre-filled benchmark issue.
-ditto -c -k --keepParent "$OUT" benchmark-results.zip
+ditto -c -k --keepParent "$OUT" "$OUT.zip"
 python3 Scripts/early-read-report.py "$OUT"
