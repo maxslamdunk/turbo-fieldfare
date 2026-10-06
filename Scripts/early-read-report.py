@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Turn benchmark-results/ from Scripts/benchmark-early-read.sh (or
-benchmark-results-counts/ from Scripts/benchmark-early-read-counts.sh) into a
+"""Turn benchmark-results/ from Scripts/benchmark-early-read.sh into a
 benchmark report in the repository's [Benchmark] issue format.
 
 Writes benchmark-results/issue.md and prints a link that opens the
@@ -12,22 +11,18 @@ import glob
 import hashlib
 import os
 import re
+import statistics
 import sys
 import urllib.parse
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "benchmark-results"
 REPO = sys.argv[2] if len(sys.argv) > 2 else "maxslamdunk/turbo-fieldfare"
 CASES = ["short-explanation", "medium-review", "long-synthesis"]
-SETTINGS = [("off", "off"), ("router", "router"), ("fitted", "fitted"),
-            ("fitted2", "fitted ×2"), ("fitted3", "fitted ×3"),
-            ("fitted4", "fitted ×4")]
-LABELS = dict(SETTINGS)
-DEFAULT_ORDER = "off router fitted fitted2 fitted2 fitted router off"
 URL_LIMIT = 7000
 
 FOOTER = re.compile(r"\[stop=(\S+) prefill=(\d+)tok new=(\d+)tok "
                     r"decode=([\d.]+)s tok/s=([\d.]+)\]")
-EARLY = re.compile(r"needed/tok=([\d.]+) loaded-early/tok=([\d.]+) "
+EARLY = re.compile(r"guess=(\S+) needed/tok=([\d.]+) loaded-early/tok=([\d.]+) "
                    r"reads/tok=([\d.]+) precision=([\d.]+)")
 
 
@@ -38,6 +33,15 @@ def system_field(text, label):
 
 def mean(values):
     return sum(values) / len(values) if values else None
+
+
+def label(setting):  # "router2" -> "router ×2"
+    match = re.fullmatch(r"([a-z]+)(\d+)", setting)
+    return f"{match.group(1)} ×{match.group(2)}" if match else setting
+
+
+def guess_of(setting):
+    return re.sub(r"\d+$", "", setting)
 
 
 with open(os.path.join(OUT, "system", "system.txt")) as f:
@@ -52,88 +56,140 @@ build = system_field(system, "BuildVersion")
 swift = re.search(r"Apple Swift version (\S+)", system)
 swift = swift.group(1) if swift else "?"
 power = "on power" if "AC Power" in system else "on battery"
-order = system_field(system, "Settings")
-order = (DEFAULT_ORDER if order == "?" else order).split()
-counts = order != DEFAULT_ORDER.split()
-
-runs = {}   # (case, setting) -> list of dicts
-texts = {}  # case -> set of output hashes
-for path in sorted(glob.glob(os.path.join(OUT, "measured", "*.stderr"))):
-    name = os.path.basename(path)[:-len(".stderr")]
-    case = next((c for c in CASES if name.startswith(c + "-")), None)
-    if case is None:
-        continue
-    setting = name.rsplit("-", 1)[1]
-    with open(path) as f:
-        err = f.read()
-    footer = FOOTER.search(err)
-    if not footer:
-        continue
-    run = {"stop": footer.group(1), "prefill": int(footer.group(2)),
-           "new": int(footer.group(3)), "tps": float(footer.group(5))}
-    early = EARLY.search(err)
-    if early:
-        run.update(needed=float(early.group(1)), loaded=float(early.group(2)),
-                   precision=float(early.group(4)))
-    runs.setdefault((case, setting), []).append(run)
-    with open(path[:-len(".stderr")] + ".stdout", "rb") as f:
-        texts.setdefault(case, set()).add(hashlib.sha256(f.read()).hexdigest())
-
-present = [(key, label) for key, label in SETTINGS
-           if any((c, key) in runs for c in CASES)]
+order = system_field(system, "Settings").split()
+pair_order = system_field(system, "Pairs")
+pair_order = [] if pair_order == "?" else pair_order.split()
 
 
-def cell(case, key, field, fmt):
-    value = mean([r[field] for r in runs.get((case, key), []) if field in r])
+def load(stage):  # -> list of runs, in run order
+    runs = []
+    for path in glob.glob(os.path.join(OUT, stage, "*.stderr")):
+        name = os.path.basename(path)[:-len(".stderr")]
+        case = next((c for c in CASES if name.startswith(c + "-")), None)
+        if case is None:
+            continue
+        n, setting = name[len(case) + 1:].split("-", 1)
+        with open(path) as f:
+            err = f.read()
+        footer = FOOTER.search(err)
+        if not footer:
+            continue
+        run = {"case": case, "n": int(n), "setting": setting, "stop": footer.group(1),
+               "prefill": int(footer.group(2)), "new": int(footer.group(3)),
+               "tps": float(footer.group(5))}
+        early = EARLY.search(err)
+        if early:
+            run.update(guess=early.group(1), needed=float(early.group(2)),
+                       loaded=float(early.group(3)), precision=float(early.group(5)))
+        with open(path[:-len(".stderr")] + ".stdout", "rb") as f:
+            run["text"] = hashlib.sha256(f.read()).hexdigest()
+        runs.append(run)
+    return sorted(runs, key=lambda r: (CASES.index(r["case"]), r["n"]))
+
+
+measured, pairs = load("measured"), load("pairs")
+everything = measured + pairs
+# A fitted run that fell back to the router guess (the model's snapshot does
+# not match the bundled guess file) prints guess=router; flag it.
+fallbacks = [r for r in everything
+             if "guess" in r and r["guess"] != guess_of(r["setting"])]
+
+
+def settings_of(runs):
+    seen = []
+    for r in runs:
+        if r["setting"] not in seen:
+            seen.append(r["setting"])
+    return seen
+
+
+def cell(runs, case, setting, field, fmt):
+    value = mean([r[field] for r in runs
+                  if r["case"] == case and r["setting"] == setting and field in r])
     return fmt.format(value) if value is not None else "—"
 
 
-speed = ["| case | " + " | ".join(label for _, label in present) + " |",
-         "| --- |" + " ---: |" * len(present)]
-for case in CASES:
-    speed.append(f"| {case} | " + " | ".join(
-        cell(case, key, "tps", "{:.3f}") for key, _ in present) + " |")
-on = [(k, l) for k, l in present if k != "off"]
-guess = ["| case | needed/tok | " + " | ".join(
-    f"{l}: loaded early, precision" for _, l in on) + " |",
-         "| --- | ---: |" + " ---: |" * len(on)]
-for case in CASES:
-    needed = cell(case, on[0][0], "needed", "{:.2f}") if on else "—"
-    guess.append(f"| {case} | {needed} | " + " | ".join(
-        cell(case, k, "loaded", "{:.2f}") + ", " + cell(case, k, "precision", "{:.3f}")
-        for k, _ in on) + " |")
-runs_per_case = {c: sum(len(runs.get((c, k), [])) for k, _ in present) for c in CASES}
-results = ("Decode tok/s, mean of the runs per setting "
-           f"({', '.join(f'{c} {runs_per_case[c]} runs' for c in CASES)}):\n\n"
-           + "\n".join(speed)
-           + "\n\nExpert reads per token with the early read on:\n\n"
-           + "\n".join(guess)
-           + f"\n\nOrder per case: {', '.join(LABELS.get(s, s) for s in order)}; "
-           f"2-minute pause before each run; one discarded warmup per case. "
-           f"{model}, {power}.")
+def counters_table(runs, settings, cases):
+    on = [s for s in settings if s != "off"]
+    table = ["| case | needed/tok | " + " | ".join(
+        f"{label(s)}: loaded early, precision" for s in on) + " |",
+             "| --- | ---: |" + " ---: |" * len(on)]
+    for case in cases:
+        needed = cell(runs, case, on[0], "needed", "{:.2f}") if on else "—"
+        table.append(f"| {case} | {needed} | " + " | ".join(
+            cell(runs, case, s, "loaded", "{:.2f}") + ", "
+            + cell(runs, case, s, "precision", "{:.3f}") for s in on) + " |")
+    return table
+
+
+sections = []
+if measured:
+    stage1 = settings_of(measured)
+    cases1 = [c for c in CASES if any(r["case"] == c for r in measured)]
+    speed = ["| case | " + " | ".join(map(label, stage1)) + " |",
+             "| --- |" + " ---: |" * len(stage1)]
+    for case in cases1:
+        speed.append(f"| {case} | " + " | ".join(
+            cell(measured, case, s, "tps", "{:.3f}") for s in stage1) + " |")
+    sections.append(
+        "**Stage 1.** Decode tok/s, mean of the runs per setting. Order per case: "
+        f"{', '.join(map(label, order))}.\n\n" + "\n".join(speed)
+        + "\n\nExpert reads per token with the early read on:\n\n"
+        + "\n".join(counters_table(measured, stage1, cases1)))
+
+if pairs:
+    a, b = (settings_of(pairs) + [None])[:2]
+    rows = ["| pair | runs | " + f"{label(a)} | {label(b)} | {label(b)} vs {label(a)} |",
+            "| --- | --- | ---: | ---: | ---: |"]
+    changes = []
+    for i in range(0, len(pairs) - 1, 2):
+        pair = {r["setting"]: r for r in pairs[i:i + 2]}
+        if set(pair) != {a, b}:
+            continue
+        change = pair[b]["tps"] / pair[a]["tps"] - 1
+        changes.append(change)
+        rows.append(f"| {len(changes)} | {pairs[i]['n']}–{pairs[i + 1]['n']} | "
+                    f"{pair[a]['tps']:.3f} | {pair[b]['tps']:.3f} | {change:+.1%} |")
+    case = pairs[0]["case"]
+    verdict = (f"{label(b)} faster in {sum(c > 0 for c in changes)} of {len(changes)} "
+               f"pairs; median {statistics.median(changes):+.1%}, "
+               f"range {min(changes):+.1%} to {max(changes):+.1%}." if changes else "")
+    sections.append(
+        f"**Stage 2.** {case} only, adjacent {label(a)} / {label(b)} pairs, decode tok/s. "
+        f"Order: {', '.join(map(label, pair_order))}.\n\n" + "\n".join(rows)
+        + f"\n\n{verdict}\n\nExpert reads per token:\n\n"
+        + "\n".join(counters_table(pairs, [a, b], [case])))
+
+results = ("\n\n".join(sections)
+           + "\n\n2-minute pause before each run; one discarded warmup per case "
+           f"(router ×2). {model}, {power}.")
+if fallbacks:
+    results += ("\n\n**Warning:** {} fitted run(s) used the router guess "
+                "(guess=router in the footer): the model does not match the bundled "
+                "guess file.".format(len(fallbacks)))
+
+first = {}
+for r in everything:
+    first.setdefault(r["case"], r)
 workload = "\n".join(
-    "{}: prompt {} tok, generated {} tok, stop={}".format(
-        c, *(lambda r: (r["prefill"], r["new"], r["stop"]))(runs[(c, present[0][0])][0]))
-    for c in CASES if (c, present[0][0]) in runs)
+    f"{c}: prompt {first[c]['prefill']} tok, generated {first[c]['new']} tok, "
+    f"stop={first[c]['stop']}" for c in CASES if c in first)
 workload += ("\nFresh process per run (cold expert cache), "
              "docs/benchmark-prompts/real-generation-v1 with their seeds.")
-parity = "\n".join(
-    f"{c}: {len(texts.get(c, ()))} distinct output(s) across "
-    f"{runs_per_case[c]} runs"
-    + (f" (SHA-256 {next(iter(texts[c]))[:16]}…)" if len(texts.get(c, ())) == 1 else "")
-    for c in CASES)
-reads = sorted({int(s[len("fitted"):] or 1) for s in order if s.startswith("fitted")})
-reads_text = " and ".join(map(str, reads))
-settings = ("each case run with --early-expert-read fitted and "
-            f"TURBO_FIELDFARE_EARLY_EXPERT_READS={reads_text} (\"fitted ×N\")" if counts else
-            "each case run with --early-expert-read off | router | fitted, and fitted "
-            "with TURBO_FIELDFARE_EARLY_EXPERT_READS=2 (\"fitted ×2\")")
-command = (f"Scripts/benchmark-early-read{'-counts' if counts else ''}.sh "
-           "(docs/COMMUNITY_BENCHMARKS.md settings: --max-new 1024 --max-context 4096 "
-           f"--temperature 0.2 --top-k 64 --top-p 0.95, defaults otherwise), {settings}.")
+parity = []
+for c in CASES:
+    texts = {r["text"] for r in everything if r["case"] == c}
+    if texts:
+        count = sum(r["case"] == c for r in everything)
+        parity.append(f"{c}: {len(texts)} distinct output(s) across {count} runs"
+                      + (f" (SHA-256 {next(iter(texts))[:16]}…)" if len(texts) == 1 else ""))
+parity = "\n".join(parity)
+command = ("Scripts/benchmark-early-read.sh (docs/COMMUNITY_BENCHMARKS.md settings: "
+           "--max-new 1024 --max-context 4096 --temperature 0.2 --top-k 64 --top-p 0.95, "
+           "defaults otherwise), with --early-expert-read off | router | fitted; "
+           "\"×N\" sets TURBO_FIELDFARE_EARLY_EXPERT_READS=N.")
 fields = {
-    "title": f"[Benchmark]: {chip}, {memory}, macOS {macos} — early expert "
-             + (f"reads per layer, {reads_text}" if counts else "read"),
+    "title": f"[Benchmark]: {chip}, {memory}, macOS {macos} — early expert read",
     "commit": commit,
     "hardware": f"{model}, {chip}, {memory}",
     "environment": f"macOS {macos} ({build}), Swift {swift}",

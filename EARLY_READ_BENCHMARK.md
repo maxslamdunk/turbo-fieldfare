@@ -3,14 +3,21 @@
 This branch adds a decode change: while storage is idle after each layer's
 expert reads, read the expert the next layer most likely needs. The benchmark
 below measures it with the
-[community benchmark](docs/COMMUNITY_BENCHMARKS.md) prompts and settings,
-running each case eight times across the setting.
+[community benchmark](docs/COMMUNITY_BENCHMARKS.md) prompts and settings, in
+two stages:
+
+1. Each case six times, in the order off, router, router ×2, router ×2,
+   router, off: what the early read gives, guessing with the next layer's own
+   router, reading one or two experts per layer.
+2. The short case sixteen times, alternating router ×2 and fitted ×2 (a guess
+   fitted for this model): eight side-by-side pairs, so slow changes in the
+   Mac's speed over the run cancel within each pair.
 
 ## What you need
 
 - An Apple Silicon Mac, macOS 26, Xcode 26 / Swift 6.2 or newer.
 - About 20 GB free disk, an internet connection for the model download.
-- About 2–3 hours with the Mac on power and otherwise idle.
+- About 3 hours with the Mac on power and otherwise idle.
 
 ## Steps
 
@@ -48,23 +55,7 @@ running each case eight times across the setting.
    If the link does not work, `python3 Scripts/early-read-report.py` prints it
    again, and `benchmark-results/issue.md` has the same report to paste.
 
-`benchmark-results/summary.txt` has one line per run: tokens per second, and for runs with the
-early read on, how many of each token's expert reads were already loaded and
-how often the guess was right. Its last lines check that every run of a case
-produced identical text.
-
-## Optional: more early reads per layer
-
-The benchmark above reads one or two experts per layer early. A faster Mac
-may gain from more. To measure 3 and 4 per layer, run this right after the
-benchmark above, with the same build and model:
-
-```bash
-Scripts/benchmark-early-read-counts.sh
-```
-
-It takes about half as long as the first one. It prints its own issue link
-the same way, and writes `benchmark-results-counts/` and
-`benchmark-results-counts.zip`. If the link does not work,
-`python3 Scripts/early-read-report.py benchmark-results-counts` prints it
-again.
+`benchmark-results/summary.txt` has one line per run: tokens per second, and
+for runs with the early read on, how many of each token's expert reads were
+already loaded and how often the guess was right. Its last lines check that
+every run of a case produced identical text.
