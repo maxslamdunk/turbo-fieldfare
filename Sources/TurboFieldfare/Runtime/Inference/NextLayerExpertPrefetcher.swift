@@ -34,9 +34,8 @@ public struct EarlyExpertReadStats: Sendable, Equatable {
 /// and generated text are unchanged; only where some misses' bytes come from
 /// differs.
 ///
-/// One read per layer by default: on an iPhone 17 the storage idle time per
-/// layer was about one read long. `TURBO_FIELDFARE_EARLY_EXPERT_READS` (1–8)
-/// tries more on storage that reads faster; each costs one more 3.36 MB buffer.
+/// One read per layer by default; `TURBO_FIELDFARE_EARLY_EXPERT_READS` (1–8)
+/// sets more, each with its own 3.36 MB staging buffer.
 final class NextLayerExpertPrefetcher: @unchecked Sendable {
     static let readsEnvironmentKey = "TURBO_FIELDFARE_EARLY_EXPERT_READS"
     static let maxReadsPerLayer = 8
