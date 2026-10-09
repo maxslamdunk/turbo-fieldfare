@@ -82,13 +82,13 @@ extension PreadExpertStreamerTests {
     }
   }
 
-  @Test func earlyReadsPerLayerDefaultsToOne() {
+  @Test func earlyReadsPerLayerDefaultsToTwo() {
     let key = NextLayerExpertPrefetcher.readsEnvironmentKey
-    #expect(NextLayerExpertPrefetcher.readsPerLayer(environment: [:]) == 1)
-    #expect(NextLayerExpertPrefetcher.readsPerLayer(environment: [key: "2"]) == 2)
+    #expect(NextLayerExpertPrefetcher.readsPerLayer(environment: [:]) == 2)
+    #expect(NextLayerExpertPrefetcher.readsPerLayer(environment: [key: "1"]) == 1)
     #expect(NextLayerExpertPrefetcher.readsPerLayer(environment: [key: "8"]) == 8)
     for invalid in ["0", "9", "-1", "two", ""] {
-      #expect(NextLayerExpertPrefetcher.readsPerLayer(environment: [key: invalid]) == 1)
+      #expect(NextLayerExpertPrefetcher.readsPerLayer(environment: [key: invalid]) == 2)
     }
   }
 }

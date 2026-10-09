@@ -28,19 +28,19 @@ public struct EarlyExpertReadStats: Sendable, Equatable {
 ///
 /// Per layer L < last: cb1(L) also scores layer L+1's experts over L's router
 /// input, with the fitted guess the runtime ships for this model
-/// (`NextLayerGuessWeights`) or else with L+1's own router. After L's own reads finish, the best-scoring experts
-/// that L+1's cache does not hold are read, best first, into staging buffers
-/// outside every slot. Each one L+1's plan then misses has its staging buffer
-/// swapped into the slot the plan assigned to it and its read skipped; the rest
-/// are wasted. The cache plans exactly as it would without this, so hit rate
-/// and generated text are unchanged; only where some misses' bytes come from
-/// differs.
+/// (`NextLayerGuessWeights`) or else with L+1's own router. After L's own reads
+/// finish, the best-scoring experts that L+1's cache does not hold are read,
+/// best first, into staging buffers outside every slot. Each one L+1's plan
+/// then misses has its staging buffer swapped into the slot the plan assigned
+/// to it and its read skipped; the rest are wasted. The cache plans exactly as
+/// it would without this, so hit rate and generated text are unchanged; only
+/// where some misses' bytes come from differs.
 ///
-/// One read per layer by default: on an iPhone 17 the storage idle time per
-/// layer was about one read long. `TURBO_FIELDFARE_EARLY_EXPERT_READS` (1–8)
-/// tries more on storage that reads faster; each costs one more 3.36 MB buffer.
+/// Two reads per layer by default; `TURBO_FIELDFARE_EARLY_EXPERT_READS` (1–8)
+/// sets another count, each read with its own 3.36 MB staging buffer.
 final class NextLayerExpertPrefetcher: @unchecked Sendable {
     static let readsEnvironmentKey = "TURBO_FIELDFARE_EARLY_EXPERT_READS"
+    static let defaultReadsPerLayer = 2
     static let maxReadsPerLayer = 8
 
     /// Written by the read before `done` is left, read only after waiting.
@@ -91,11 +91,11 @@ final class NextLayerExpertPrefetcher: @unchecked Sendable {
     }
 
     /// `TURBO_FIELDFARE_EARLY_EXPERT_READS` when it is a whole number from 1
-    /// to `maxReadsPerLayer`, otherwise 1.
+    /// to `maxReadsPerLayer`, otherwise `defaultReadsPerLayer`.
     static func readsPerLayer(environment: [String: String]) -> Int {
         guard let value = environment[readsEnvironmentKey].flatMap({ Int($0) }),
               (1...maxReadsPerLayer).contains(value)
-        else { return 1 }
+        else { return defaultReadsPerLayer }
         return value
     }
 

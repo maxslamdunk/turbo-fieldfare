@@ -53,7 +53,7 @@ public struct ServerArguments: Equatable, Sendable {
                                  16.4 MB at 128.
       --rdadvise <s>             Read-advice policy: off, default, bounded, or adaptive
                                  (default off).
-      --early-expert-read <s>    Read one guessed expert of the next layer while
+      --early-expert-read <s>    Read two guessed experts of the next layer while
                                  storage is idle: off, router, or fitted (default
                                  fitted; router for a model with no fitted guess).
       --help                     Show this help.

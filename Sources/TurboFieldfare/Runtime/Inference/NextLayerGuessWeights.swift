@@ -4,12 +4,11 @@ import Foundation
 import Metal
 
 /// The fitted next-layer guess for `NextLayerExpertPrefetcher`, mapped
-/// read-only from the file `Scripts/next-layer-guess/fit_guess.py` writes. For
-/// each target layer 1..numLayers-1 it holds one router-shaped matrix: that
-/// layer's router plus a ridge correction fitted offline, already multiplied
-/// by the effective scale. It is stored in the router's own 8-bit affine
-/// format, so `router_gemv_gemma4_r4` runs it unchanged with `unitScale` as the
-/// effective scale.
+/// read-only. For each target layer 1..numLayers-1 it holds one router-shaped
+/// matrix: that layer's router plus a ridge correction fitted offline on decode
+/// routing traces, already multiplied by the effective scale. It is stored in
+/// the router's own 8-bit affine format, so `router_gemv_gemma4_r4` runs it
+/// unchanged with `unitScale` as the effective scale.
 ///
 /// Layout, little-endian: a 64-byte header (8-byte magic `TFNLG1\0\0`, then
 /// UInt32 numLayers, numExperts, hiddenSize, groupSize, firstTargetLayer,
